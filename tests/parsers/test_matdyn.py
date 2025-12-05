@@ -4,10 +4,10 @@ from aiida import orm
 from aiida.common import AttributeDict
 
 
-def generate_inputs():
+def generate_inputs(n=1):
     """Return only those inputs that the parser will expect to be there."""
     kpoints = orm.KpointsData()
-    kpoints.set_kpoints_mesh([1, 1, 1])
+    kpoints.set_kpoints_mesh([n, n, 1])
 
     return AttributeDict({
         'kpoints': kpoints,
@@ -28,7 +28,89 @@ def test_matdyn_default(fixture_localhost, generate_calc_job_node, generate_pars
     assert not orm.Log.collection.get_logs_for(node)
     assert 'output_parameters' in results
     assert 'output_phonon_bands' in results
-    data_regression.check({
-        'output_parameters': results['output_parameters'].get_dict(),
-        'output_phonon_bands': results['output_phonon_bands'].base.attributes.all
-    })
+    data_regression.check(
+        {
+            'output_parameters': results['output_parameters'].get_dict(),
+            'output_phonon_bands': results['output_phonon_bands'].base.attributes.all,
+            'frequencies': results['output_phonon_bands'].get_array('bands').tolist(),
+            'kpoints': results['output_phonon_bands'].get_array('kpoints').tolist(),
+        }
+    )
+
+
+def test_matdyn_k_weights(fixture_localhost, generate_calc_job_node, generate_parser, data_regression):
+    """Test a default `matdyn.x` calculation which also outputs k-weights in phonon_frequencies."""
+    entry_point_calc_job = 'quantumespresso.matdyn'
+    entry_point_parser = 'quantumespresso.matdyn'
+
+    node = generate_calc_job_node(entry_point_calc_job, fixture_localhost, 'k_weights', generate_inputs(2))
+    parser = generate_parser(entry_point_parser)
+    results, calcfunction = parser.parse_from_node(node, store_provenance=False)
+
+    assert calcfunction.is_finished, calcfunction.exception
+    assert calcfunction.is_finished_ok, calcfunction.exit_message
+    assert not orm.Log.collection.get_logs_for(node)
+    assert 'output_parameters' in results
+    assert 'output_phonon_bands' in results
+    data_regression.check(
+        {
+            'output_parameters': results['output_parameters'].get_dict(),
+            'output_phonon_bands': results['output_phonon_bands'].base.attributes.all,
+            'frequencies': results['output_phonon_bands'].get_array('bands').tolist(),
+            'kpoints': results['output_phonon_bands'].get_array('kpoints').tolist(),
+        }
+    )
+
+
+def test_matdyn_k_weights_attached(fixture_localhost, generate_calc_job_node, generate_parser, data_regression):
+    """Test a default `matdyn.x` calculation which also outputs k-weights in phonon_frequencies and has attached frequencies through a minus sign (bad formatting)."""
+    entry_point_calc_job = 'quantumespresso.matdyn'
+    entry_point_parser = 'quantumespresso.matdyn'
+
+    node = generate_calc_job_node(entry_point_calc_job, fixture_localhost, 'k_weights_attached', generate_inputs(2))
+    parser = generate_parser(entry_point_parser)
+    results, calcfunction = parser.parse_from_node(node, store_provenance=False)
+
+    assert calcfunction.is_finished, calcfunction.exception
+    assert calcfunction.is_finished_ok, calcfunction.exit_message
+    assert not orm.Log.collection.get_logs_for(node)
+    assert 'output_parameters' in results
+    assert 'output_phonon_bands' in results
+    data_regression.check(
+        {
+            'output_parameters': results['output_parameters'].get_dict(),
+            'output_phonon_bands': results['output_phonon_bands'].base.attributes.all,
+            'frequencies': results['output_phonon_bands'].get_array('bands').tolist(),
+            'kpoints': results['output_phonon_bands'].get_array('kpoints').tolist(),
+        }
+    )
+
+
+def test_matdyn_dos(fixture_localhost, generate_calc_job_node, generate_parser, data_regression):
+    """Test the ``MatdynParser`` for an dos calculation."""
+    entry_point_calc_job = 'quantumespresso.matdyn'
+    entry_point_parser = 'quantumespresso.matdyn'
+
+    kpoints = orm.KpointsData()
+    kpoints.set_kpoints_mesh([2, 2, 2])
+
+    inputs = {
+        'parameters': orm.Dict({'INPUT': {'dos': True}}),
+        'kpoints': kpoints,
+    }
+
+    node = generate_calc_job_node(entry_point_calc_job, fixture_localhost, 'dos', inputs)
+    parser = generate_parser(entry_point_parser)
+    results, calcfunction = parser.parse_from_node(node, store_provenance=False)
+
+    assert calcfunction.is_finished, calcfunction.exception
+    assert calcfunction.is_finished_ok, calcfunction.exit_message
+    assert not orm.Log.collection.get_logs_for(node)
+    assert 'output_parameters' in results
+    assert 'output_phonon_dos' in results
+    data_regression.check(
+        {
+            'output_parameters': results['output_parameters'].get_dict(),
+            'output_phonon_dos': results['output_phonon_dos'].base.attributes.all,
+        }
+    )
