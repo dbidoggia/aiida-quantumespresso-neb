@@ -487,6 +487,10 @@ class PwBaseWorkChain(ProtocolMixin, BaseRestartWorkChain):
 
         self.set_restart_type(RestartType.FULL, calculation.outputs.remote_folder)
         self.report_error_handled(calculation, "restarting in full with `CONTROL.restart_mode` = 'restart'")
+        if 'md' in self.ctx.inputs.parameters['CONTROL'].get('calculation', None):
+            original_nstep = self.ctx.inputs.parameters['CONTROL'].get('nstep', 50)
+            final_step = calculation.outputs.output_parameters.get('scf_iterations', 1) - 1
+            self.ctx.inputs.parameters['CONTROL']['nstep'] = original_nstep - final_step
 
         return ProcessHandlerReport(True)
 
@@ -500,7 +504,9 @@ class PwBaseWorkChain(ProtocolMixin, BaseRestartWorkChain):
         transient, so we can restart from the last output structure. Note that since the job got interrupted the charge
         density and wave functions are likely corrupt so those cannot be used in the restart.
         """
-        self.ctx.inputs.structure = calculation.outputs.output_structure
+        if 'output_structure' in calculation.outputs:
+            self.ctx.inputs.structure = calculation.outputs.output_structure
+
         self.set_restart_type(RestartType.FROM_SCRATCH)
         self.report_error_handled(calculation, 'restarting from scratch from the last output structure')
         return ProcessHandlerReport(True)

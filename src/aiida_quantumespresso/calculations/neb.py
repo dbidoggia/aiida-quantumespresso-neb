@@ -29,6 +29,7 @@ class NebCalculation(CalcJob):
     # Default input and output file names
     _DEFAULT_INPUT_FILE = 'neb.dat'
     _DEFAULT_OUTPUT_FILE = 'aiida.out'
+    _DEFAULT_MINIMUM_IMAGES = 3
     _PSEUDO_SUBFOLDER = PwCalculation._PSEUDO_SUBFOLDER  # pylint: disable=protected-access
     _OUTPUT_SUBFOLDER = PwCalculation._OUTPUT_SUBFOLDER  # pylint: disable=protected-access
     _ENABLED_PARALLELIZATION_FLAGS = ('npool', 'nband', 'ntg', 'ndiag', 'nimage')
@@ -165,12 +166,12 @@ class NebCalculation(CalcJob):
                 'The `first_structure` and `last_structure` inputs input are deprecated'
                 'and will be removed in a future release. Use `images` instead.', AiidaDeprecationWarning
             )
-            inputs['images'] = orm.TrajectoryData([inputs['first_structure'], inputs['last_structure']])
+            structure_list = [inputs['first_structure'], inputs['last_structure']]
         elif 'first_structure' in inputs or 'last_structure' in inputs:
             return 'Specify either `images` or both `first_structure` and `last_structure`, but not both.'
+        else:
+            structure_list = [inputs['images'].get_step_structure(i) for i in range(len(inputs['images'].get_stepids()))]
 
-        num_images = len(inputs['images'].get_stepids())
-        structure_list = [inputs['images'].get_step_structure(i) for i in range(num_images)]
         for image_idx, structure in enumerate(structure_list[1:]):
             # Check that all images have the same cell
             if abs(np.array(structure_list[0].cell) - np.array(structure.cell)).max() > 1.e-4:
@@ -194,15 +195,17 @@ class NebCalculation(CalcJob):
                        f'Pseudos: {formatted_pseudos};\nKinds: {formatted_kinds}'
 
         #validate nimages
-        num_of_images = int(inputs['parameters']['PATH'].get('num_of_images', 3))
+        num_of_images = inputs['parameters'].get('PATH',{}).get('num_of_images', None)
+        if num_of_images is None:
+            return 'The `num_of_images` parameter under the `PATH` namelist must be specified.'
+        num_of_images = int(num_of_images)
         ni = int(inputs.get('parallelization', {}).get('nimage', 1))
-        first_last_opt = bool(inputs['parameters']['PATH'].get('first_last_opt', False))
-
-        max_ni = num_of_images if first_last_opt else num_of_images - 2
+        first_last_opt = bool(inputs['parameters'].get('PATH',{}).get('first_last_opt', False))
+        n_fixed_images = 2 if not first_last_opt else 0
+        max_ni = num_of_images - n_fixed_images
         if ni > max_ni:
-            return f'The specified nimage {ni} parallelization is higher than the number of images {max_ni}.'
-        cls.inputs = AttributeDict(inputs)
-
+            return f'The specified nimage {ni} parallelization is higher than {max_ni} = number of images {num_of_images} minus the fixed images {n_fixed_images} (first_last_opt is {first_last_opt}).'
+          
     @classmethod
     def _generate_input_files(cls, neb_parameters, settings_dict):
         """Generate the input data for the NEB part of the calculation."""
@@ -229,7 +232,8 @@ class NebCalculation(CalcJob):
         # Create an empty dictionary for the compulsory namelist 'PATH' if not present
         if 'PATH' not in input_params:
             input_params['PATH'] = {}
-
+            
+        number_of_images = input_params['PATH']['num_of_images']
         # In case of climbing image, we need the corresponding card
         ci_scheme = input_params['PATH'].get('ci_scheme', 'no-ci').lower()
         climbing_image_list = settings_dict.pop('CLIMBING_IMAGES', None)
@@ -241,8 +245,7 @@ class NebCalculation(CalcJob):
                 )
             if not isinstance(climbing_image_list, list):
                 raise InputValidationError('Climbing images should be provided as a list.')
-            num_of_images = input_params['PATH'].get('num_of_images', 2)
-            if any((i < 2 or i >= num_of_images) for i in climbing_image_list):
+            if any((i < 2 or i >= number_of_images) for i in climbing_image_list):
                 raise InputValidationError(
                     'The climbing images should be in the range between the first '
                     'and the last image (excluded).'
@@ -301,8 +304,10 @@ class NebCalculation(CalcJob):
         else:
             settings_dict = {}
 
-        num_images = len(self.inputs.images.get_stepids())
-        structure_list = [self.inputs.images.get_step_structure(i) for i in range(num_images)]
+        if 'images' in self.inputs:
+            structure_list = [self.inputs.images.get_step_structure(i) for i in range(len(self.inputs.images.get_stepids()))]
+        else:
+            structure_list = [self.inputs['first_structure'], self.inputs['last_structure']]
 
         # Create the subfolder that will contain the pseudopotentials
         folder.get_subfolder(self._PSEUDO_SUBFOLDER, create=True)

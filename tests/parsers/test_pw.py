@@ -98,7 +98,8 @@ def test_pw_default_no_xml(
 
 
 @pytest.mark.parametrize(
-    'xml_format', ['190304', '191206', '200420', '210716', '211101', '220603', '230310', '240411', '241015', '241104']
+    'xml_format',
+    ['190304', '191206', '200420', '210716', '211101', '220603', '230310', '240411', '241015', '241104', '250521'],
 )
 def test_pw_default_xml(
     fixture_localhost, generate_calc_job_node, generate_parser, generate_inputs, data_regression, xml_format
@@ -123,11 +124,16 @@ def test_pw_default_xml(
     assert 'output_parameters' in results
     assert 'output_trajectory' in results
 
-    data_regression.check({
+    data_to_check = {
         'output_band': results['output_band'].base.attributes.all,
         'output_parameters': results['output_parameters'].get_dict(),
         'output_trajectory': results['output_trajectory'].base.attributes.all,
-    })
+    }
+    if 'forces' in results['output_trajectory'].get_arraynames():
+        data_to_check['forces'] = results['output_trajectory'].get_array('forces').tolist()
+        data_to_check['stress'] = results['output_trajectory'].get_array('stress').tolist()
+
+    data_regression.check(data_to_check)
 
 
 def test_pw_initialization_xml_new(
